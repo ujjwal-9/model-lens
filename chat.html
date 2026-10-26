@@ -1,0 +1,229 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Steering chat</title>
+<style>
+  :root {
+    --bg: #f7f7f5; --panel: #ffffff; --text: #1d1d1b; --muted: #6b6b66; --border: #e3e2de;
+    --accent: #2f6fde; --steer: #b4482f; --steer-bg: #fbf1ee; --base-bg: #f1f4f8; --danger: #b42318;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #161615; --panel: #1f1f1d; --text: #ecebe7; --muted: #9a9993; --border: #34332f;
+      --accent: #7aa7ff; --steer: #f08a6c; --steer-bg: #2a1f1b; --base-bg: #1c2129; --danger: #ff7b6e;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 15px/1.5 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", sans-serif;
+  }
+  header {
+    position: sticky; top: 0; z-index: 2; background: var(--bg); border-bottom: 1px solid var(--border);
+    display: flex; align-items: baseline; gap: 12px; padding: 12px 20px;
+  }
+  header h1 { font-size: 16px; margin: 0; font-weight: 600; }
+  header #model { color: var(--muted); font-size: 13px; flex: 1; }
+  button {
+    font: inherit; border: 1px solid var(--border); background: var(--panel); color: var(--text);
+    border-radius: 8px; padding: 6px 14px; cursor: pointer;
+  }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button:disabled { opacity: .5; cursor: default; }
+  main { max-width: 1200px; margin: 0 auto; padding: 16px 20px 220px; }
+  .empty { color: var(--muted); text-align: center; margin-top: 18vh; }
+  .turn { margin-bottom: 28px; }
+  .q {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 10px;
+    padding: 10px 14px; white-space: pre-wrap; font-weight: 500;
+  }
+  .plan { font: 12px/1.6 ui-monospace, "SF Mono", Menlo, monospace; color: var(--muted); margin: 6px 2px 10px; }
+  .cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 12px; }
+  .ans { border: 1px solid var(--border); border-radius: 10px; padding: 10px 14px; min-width: 0; }
+  .ans.steered { background: var(--steer-bg); }
+  .ans.baseline { background: var(--base-bg); }
+  .ans h3 { margin: 0 0 6px; font-size: 12px; text-transform: uppercase; letter-spacing: .06em; display: flex; gap: 8px; }
+  .ans.steered h3 { color: var(--steer); }
+  .ans.baseline h3 { color: var(--accent); }
+  .ans h3 .stat { color: var(--muted); font-weight: 400; text-transform: none; letter-spacing: 0; }
+  .ans .text { white-space: pre-wrap; overflow-wrap: anywhere; }
+  .ans.live .text::after { content: "▍"; color: var(--muted); animation: blink 1s steps(1) infinite; }
+  @keyframes blink { 50% { opacity: 0; } }
+  .error { color: var(--danger); font-size: 13px; margin-top: 8px; white-space: pre-wrap; }
+  form {
+    position: fixed; left: 0; right: 0; bottom: 0; background: var(--bg); border-top: 1px solid var(--border);
+    padding: 10px 20px 14px;
+  }
+  .inner { max-width: 1200px; margin: 0 auto; }
+  .settings { display: flex; flex-wrap: wrap; gap: 6px 18px; align-items: center; font-size: 13px; color: var(--muted); margin-bottom: 8px; }
+  .settings input[type=text], .settings input[type=number] {
+    font: 13px ui-monospace, "SF Mono", Menlo, monospace; color: var(--text); background: var(--panel);
+    border: 1px solid var(--border); border-radius: 6px; padding: 4px 8px;
+  }
+  #specs { width: min(360px, 70vw); }
+  #maxTokens { width: 72px; }
+  .row { display: flex; gap: 8px; align-items: flex-end; }
+  textarea {
+    flex: 1; font: inherit; color: var(--text); background: var(--panel); border: 1px solid var(--border);
+    border-radius: 10px; padding: 10px 12px; resize: none; min-height: 44px; max-height: 200px;
+  }
+  textarea:focus, input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+  @media (max-width: 600px) { header, main, form { padding-left: 16px; padding-right: 16px; } }
+</style>
+</head>
+<body>
+<header>
+  <h1>Steering chat</h1>
+  <span id="model">connecting…</span>
+  <button id="clear" type="button">Clear</button>
+</header>
+
+<main id="log"><p class="empty">Each question is answered from scratch — no history is sent to the model.</p></main>
+
+<form id="composer">
+  <div class="inner">
+    <div class="settings">
+      <label>Steering <input id="specs" type="text" spellcheck="false" placeholder="L14:N8949:+1, L13:N7956:-1  (empty = baseline only)"></label>
+      <label>Max tokens <input id="maxTokens" type="number" min="1" max="4096" value="300"></label>
+      <label><input id="baseline" type="checkbox" checked> Compare with baseline</label>
+      <label><input id="think" type="checkbox"> Thinking</label>
+    </div>
+    <div class="row">
+      <textarea id="prompt" rows="1" placeholder="Ask something…  (Enter to send, Shift+Enter for a new line)"></textarea>
+      <button id="send" class="primary" type="submit">Send</button>
+      <button id="stop" type="button" hidden>Stop</button>
+    </div>
+  </div>
+</form>
+
+<script>
+const $ = (s) => document.querySelector(s);
+const log = $('#log'), promptBox = $('#prompt');
+let ctrl = null;
+
+function el(tag, cls, text) {
+  const e = document.createElement(tag);
+  if (cls) e.className = cls;
+  if (text != null) e.textContent = text;
+  return e;
+}
+const signed = (x, d) => (x >= 0 ? '+' : '') + x.toFixed(d);
+const nearBottom = () => innerHeight + scrollY >= document.body.scrollHeight - 120;
+const scrollDown = () => scrollTo(0, document.body.scrollHeight);
+
+function setBusy(busy) {
+  $('#send').disabled = busy;
+  $('#stop').hidden = !busy;
+}
+
+async function ask(prompt) {
+  log.querySelector('.empty')?.remove();
+  const turn = el('article', 'turn');
+  const plan = el('div', 'plan'), cols = el('div', 'cols');
+  turn.append(el('div', 'q', prompt), plan, cols);
+  log.append(turn);
+  scrollDown();
+
+  const panels = {};
+  const payload = {
+    prompt, specs: $('#specs').value, max_tokens: +$('#maxTokens').value || 300,
+    baseline: $('#baseline').checked, think: $('#think').checked,
+  };
+
+  function handle(ev) {
+    const stick = nearBottom();
+    if (ev.type === 'plan') {
+      plan.textContent = ev.rows.length
+        ? ev.rows.map((r) => `L${r.layer} N${r.neuron} dose ${signed(r.dose, 2)} → ${signed(r.add, 2)} on act` +
+            `  ·  median ‖resid‖ ${r.median_resid.toFixed(2)}  ·  ‖W_down[:,n]‖ ${r.w_norm.toFixed(3)}` +
+            `  ·  clean act ${signed(r.act_min, 3)} … ${signed(r.act_max, 3)}`).join('\n')
+        : 'no steering';
+      plan.style.whiteSpace = 'pre-wrap';
+    } else if (ev.type === 'start') {
+      const sec = el('section', `ans ${ev.run} live`), h = el('h3', null, ev.run);
+      const stat = el('span', 'stat'), text = el('div', 'text');
+      h.append(stat); sec.append(h, text); cols.append(sec);
+      panels[ev.run] = { sec, stat, text, raw: '' };
+    } else if (ev.type === 'token') {
+      const p = panels[ev.run];
+      p.raw += ev.text;
+      p.text.textContent = p.raw.trimStart();
+    } else if (ev.type === 'done') {
+      const p = panels[ev.run];
+      p.sec.classList.remove('live');
+      p.stat.textContent = `${ev.tokens} tok · ${ev.tps.toFixed(0)} tok/s` + (ev.finish === 'length' ? ' · hit max tokens' : '');
+    } else if (ev.type === 'error') {
+      turn.append(el('div', 'error', ev.message));
+    }
+    if (stick) scrollDown();
+  }
+
+  ctrl = new AbortController();
+  setBusy(true);
+  try {
+    const res = await fetch('/api/generate', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload), signal: ctrl.signal,
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const reader = res.body.getReader(), dec = new TextDecoder();
+    let buf = '';
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buf += dec.decode(value, { stream: true });
+      let i;
+      while ((i = buf.indexOf('\n')) >= 0) {
+        handle(JSON.parse(buf.slice(0, i)));
+        buf = buf.slice(i + 1);
+      }
+    }
+  } catch (e) {
+    if (e.name === 'AbortError') {
+      for (const p of Object.values(panels)) {
+        if (p.sec.classList.contains('live')) { p.sec.classList.remove('live'); p.stat.textContent = 'stopped'; }
+      }
+    } else {
+      turn.append(el('div', 'error', `request failed: ${e.message}`));
+    }
+  } finally {
+    for (const p of Object.values(panels)) p.sec.classList.remove('live');
+    ctrl = null;
+    setBusy(false);
+  }
+}
+
+$('#composer').addEventListener('submit', (e) => {
+  e.preventDefault();
+  const prompt = promptBox.value.trim();
+  if (!prompt || ctrl) return;
+  promptBox.value = '';
+  promptBox.style.height = '';
+  ask(prompt);
+});
+promptBox.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
+    e.preventDefault();
+    $('#composer').requestSubmit();
+  }
+});
+promptBox.addEventListener('input', () => {
+  promptBox.style.height = '';
+  promptBox.style.height = promptBox.scrollHeight + 'px';
+});
+$('#stop').addEventListener('click', () => ctrl?.abort());
+$('#clear').addEventListener('click', () => {
+  if (ctrl) return;
+  log.replaceChildren(el('p', 'empty', 'Each question is answered from scratch — no history is sent to the model.'));
+});
+
+fetch('/api/config').then((r) => r.json()).then((c) => {
+  $('#specs').value = c.specs;
+  $('#model').textContent = `${c.model} · ${c.layers} layers × ${c.neurons} neurons · bf16 on MLX`;
+}).catch(() => { $('#model').textContent = 'server not reachable'; });
+promptBox.focus();
+</script>
+</body>
+</html>
